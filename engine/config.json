@@ -1,0 +1,13 @@
+{
+  "bettercap_path": "/usr/bin/bettercap",
+  "iface": "wlan0",
+  "api_host": "127.0.0.1",
+  "api_port": 8081,
+  "api_user": "sc-bc-lab",
+  "api_password": "change-me-sc-bc",
+  "listen_host": "127.0.0.1",
+  "listen_port": 8766,
+  "lab_subnet": "192.168.0.0/24",
+  "poll_events_sec": 0.8,
+  "poll_session_sec": 2.5
+}

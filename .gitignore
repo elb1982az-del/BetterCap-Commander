@@ -1,0 +1,12 @@
+*.apk
+build/
+.gradle/
+local.properties
+*.pid
+*.log
+*.pcap
+engine.cap
+handshake_cache.json
+__pycache__/
+*.pyc
+.DS_Store
