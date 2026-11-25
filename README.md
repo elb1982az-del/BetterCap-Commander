@@ -1,4 +1,5 @@
-> [!WARNING]
+> *[❤️ Sponsor this project on GitHub](https://github.com)**
+
 > ⚠️ AUTHORIZED LAB USE ONLY. Use only on networks and devices you own or are
 > explicitly authorized to test. No third-party networks or devices.
 
