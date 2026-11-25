@@ -8,7 +8,9 @@ if [ -f engine.pid ]; then
     exit 0
   fi
 fi
-nohup python3 bettercap_engine.py > engine.log 2>&1 &
+: > engine.log
+: > bettercap.log
+nohup python3 bettercap_engine.py >> engine.log 2>&1 &
 echo $! > engine.pid
 sleep 4
 echo "engine started: $(cat engine.pid)"

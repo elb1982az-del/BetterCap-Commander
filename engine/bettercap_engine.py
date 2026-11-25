@@ -27,6 +27,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(HERE, "config.json")
 CAPLET_PATH = os.path.join(HERE, "engine.cap")
 HANDSHAKE_CACHE_PATH = os.path.join(HERE, "handshake_cache.json")
+HANDSHAKE_ENABLED = True
+LAUNCH_TRIGGER = "/sdcard/Download/BC_LAUNCH.trigger"
 
 DEFAULT_CONFIG = {
     "bettercap_path": "/usr/bin/bettercap",
@@ -142,6 +144,7 @@ class Engine:
         self.last_handshake: Dict[str, Any] = {}
         self.handshake_count = 0
         self.handshake_file_size = -1
+        # Handshake captures persist; logs and history are fresh per session.
         if os.path.exists(HANDSHAKE_CACHE_PATH):
             try:
                 with open(HANDSHAKE_CACHE_PATH, "r", encoding="utf-8") as fh:
@@ -183,6 +186,8 @@ class Engine:
         self.broadcast("log", {"message": safe_str(message), "level": level}, cache=True)
 
     def emit_handshake(self, detail: Dict[str, Any]) -> None:
+        if not HANDSHAKE_ENABLED:
+            return
         with self.lock:
             self.handshake_count += 1
             payload = dict(detail)
@@ -193,6 +198,32 @@ class Engine:
         self.broadcast("handshake", payload)
         bssid = payload.get("bssid") or payload.get("ap") or "unknown AP"
         self.emit_log("HANDSHAKE CAPTURED: %s" % bssid, "success")
+
+    def _delete_handshake_cache(self) -> None:
+        try:
+            if os.path.exists(HANDSHAKE_CACHE_PATH):
+                os.remove(HANDSHAKE_CACHE_PATH)
+        except Exception:
+            pass
+
+    def clear_history(self) -> None:
+        with self.lock:
+            self.cache_logs = []
+            self.cache_aps = {}
+            self.cache_hosts = {}
+            self.cache_ble = {}
+            self.cache_modules = []
+            self.cache_targets = []
+            self.last_results = {}
+            self.session_meta = {}
+        # Fresh log files on every app connection.
+        for path in (os.path.join(HERE, "engine.log"),
+                     os.path.join(HERE, "bettercap.log")):
+            try:
+                with open(path, "w", encoding="utf-8"):
+                    pass
+            except Exception:
+                pass
 
     def _save_handshake_cache(self) -> None:
         try:
@@ -207,6 +238,7 @@ class Engine:
     def handle_client(self, client, addr) -> None:
         with self.lock:
             self.clients.append(client)
+        self.clear_history()
         try:
             self.send_client(client, "hello", {
                 "version": VERSION,
@@ -329,6 +361,26 @@ class Engine:
                 self.reply(client, cmd, bool(result.get("success")),
                            text or ("%s=%s" % (key, value)),
                            "ok" if result.get("success") else "error")
+            elif cmd == "launch":
+                fix = "/sdcard/Download/sc_fix_adapter.sh"
+                try:
+                    subprocess.run(["sh", fix], stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.STDOUT, timeout=20)
+                except Exception:
+                    pass
+                try:
+                    self.stop_bettercap()
+                    self.start_bettercap()
+                except Exception as exc:
+                    return self.reply(client, cmd, False,
+                                      "restart failed: %s" % exc, "error")
+                self.clear_history()
+                for line in ("set wifi.interface fluxwl0",
+                             "set wifi.recon.channel 0",
+                             "wifi.recon on"):
+                    self.bc(line)
+                self.refresh_modules(force=True)
+                self.reply(client, cmd, True, "BetterCap launched fresh", "ok")
             elif cmd == "recon":
                 name = str(msg.get("name", "wifi.recon")).strip()
                 action = str(msg.get("action", "on")).strip()
@@ -502,7 +554,7 @@ api.rest on
                 "api_port": int(self.cfg["api_port"]),
                 "started_at": self.session_meta.get("started_at", ""),
                 "clients": len(self.clients),
-                "handshakes": self.handshake_count,
+                "handshakes": 0 if not HANDSHAKE_ENABLED else self.handshake_count,
             }
 
     def bc_info(self, data: Any, key: str, default: Any = "") -> Any:
@@ -637,6 +689,8 @@ api.rest on
             if not isinstance(item, dict):
                 continue
             tag = str(item.get("tag", ""))
+            if not HANDSHAKE_ENABLED and "handshake" in tag.lower():
+                continue
             stamp = str(item.get("time", ""))
             key = (tag, stamp)
             with self.lock:
@@ -703,6 +757,24 @@ api.rest on
                 pass
             time.sleep(max(1.0, interval))
 
+    def launch_trigger_loop(self, interval: float = 1.0) -> None:
+        while self.running:
+            try:
+                if os.path.exists(LAUNCH_TRIGGER):
+                    try:
+                        os.remove(LAUNCH_TRIGGER)
+                    except Exception:
+                        pass
+                    subprocess.run(
+                        ["sh", "/sdcard/Download/BC_LAUNCH.sh"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.STDOUT,
+                        timeout=90,
+                    )
+            except Exception:
+                pass
+            time.sleep(max(0.5, interval))
+
     # ---------- loops ----------
 
     def event_loop(self, interval: float) -> None:
@@ -734,6 +806,7 @@ api.rest on
         threading.Thread(target=self.session_loop,
                          args=(float(self.cfg["poll_session_sec"]),), daemon=True).start()
         threading.Thread(target=self.watch_handshake_file, daemon=True).start()
+        threading.Thread(target=self.launch_trigger_loop, daemon=True).start()
 
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

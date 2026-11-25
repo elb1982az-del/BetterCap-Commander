@@ -147,7 +147,7 @@ class EngineClient(
             }
             if (running) {
                 onStatus("Reconnecting...")
-                delay(1500)
+                delay(300)
             }
         }
         onStatus("Disconnected")
@@ -163,6 +163,7 @@ class EngineClient(
                 if (pendingSends.size >= 20) pendingSends.removeFirst()
                 pendingSends.addLast(line)
                 onStatus("Queued: $cmd")
+                try { socket?.close() } catch (_: Exception) {}
                 return@synchronized
             }
             try {
@@ -174,6 +175,7 @@ class EngineClient(
                 if (pendingSends.size >= 20) pendingSends.removeFirst()
                 pendingSends.addLast(line)
                 onStatus("Queued after write error: $cmd")
+                try { socket?.close() } catch (_: Exception) {}
             }
         }
     }
@@ -409,6 +411,20 @@ fun OverviewTab(ui: UiState, client: EngineClient) {
         Modifier.fillMaxSize().padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        item {
+            Button(
+                onClick = {
+                    try {
+                        Runtime.getRuntime().exec(
+                            arrayOf("sh", "-c",
+                                "touch /sdcard/Download/BC_LAUNCH.trigger")
+                        )
+                    } catch (_: Exception) {
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("LAUNCH BETTERCAP") }
+        }
         item { HandshakeAlert(ui) }
         item {
             CardSection("Engine") {
